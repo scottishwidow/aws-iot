@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, os, signal, sys, time, threading
+import argparse, json, os, signal, sys, time, threading, tempfile, shutil
 from pathlib import Path
 from awscrt import mqtt
 from awsiot import mqtt_connection_builder
@@ -37,6 +37,128 @@ def subscribe_sync(conn, topic, qos, cb):
     fut = ret[0] if isinstance(ret, tuple) else ret
     return fut.result()
 
+def create_invalid_cert_files(cert_path, key_path, ca_path, invalid_type):
+    """Create invalid certificate files for testing"""
+    temp_dir = tempfile.mkdtemp(prefix="invalid_certs_")
+    
+    if invalid_type == "missing":
+        # Return non-existent paths
+        return (
+            os.path.join(temp_dir, "missing_cert.pem"),
+            os.path.join(temp_dir, "missing_key.pem"),
+            os.path.join(temp_dir, "missing_ca.pem")
+        )
+    
+    elif invalid_type == "wrong":
+        # Create dummy certificate files with invalid content
+        invalid_cert = os.path.join(temp_dir, "wrong_cert.pem")
+        invalid_key = os.path.join(temp_dir, "wrong_key.pem")
+        invalid_ca = os.path.join(temp_dir, "wrong_ca.pem")
+        
+        # Write invalid PEM content
+        with open(invalid_cert, 'w') as f:
+            f.write("-----BEGIN CERTIFICATE-----\n")
+            f.write("INVALID_CERTIFICATE_CONTENT_FOR_TESTING\n")
+            f.write("-----END CERTIFICATE-----\n")
+        
+        with open(invalid_key, 'w') as f:
+            f.write("-----BEGIN PRIVATE KEY-----\n")
+            f.write("INVALID_PRIVATE_KEY_CONTENT_FOR_TESTING\n")
+            f.write("-----END PRIVATE KEY-----\n")
+        
+        with open(invalid_ca, 'w') as f:
+            f.write("-----BEGIN CERTIFICATE-----\n")
+            f.write("INVALID_CA_CERTIFICATE_CONTENT_FOR_TESTING\n")
+            f.write("-----END CERTIFICATE-----\n")
+        
+        return invalid_cert, invalid_key, invalid_ca
+    
+    elif invalid_type == "expired":
+        # For expired certificates, we'll copy the original files but they should be expired
+        # In a real scenario, you'd generate expired certificates
+        # For testing purposes, we'll use wrong certificates to simulate the failure
+        expired_cert = os.path.join(temp_dir, "expired_cert.pem")
+        expired_key = os.path.join(temp_dir, "expired_key.pem")
+        expired_ca = os.path.join(temp_dir, "expired_ca.pem")
+        
+        # Copy original files (in real scenario, these would be expired certificates)
+        if os.path.exists(cert_path):
+            shutil.copy2(cert_path, expired_cert)
+        if os.path.exists(key_path):
+            shutil.copy2(key_path, expired_key)
+        if os.path.exists(ca_path):
+            shutil.copy2(ca_path, expired_ca)
+        
+        # Modify the cert to make it invalid (simulating expiry)
+        if os.path.exists(expired_cert):
+            with open(expired_cert, 'r') as f:
+                content = f.read()
+            # Corrupt the certificate to simulate an expired/invalid cert
+            content = content.replace("-----BEGIN CERTIFICATE-----", "-----BEGIN CERTIFICATE-----\n# EXPIRED/INVALID")
+            with open(expired_cert, 'w') as f:
+                f.write(content)
+        
+        return expired_cert, expired_key, expired_ca
+    
+    return cert_path, key_path, ca_path
+
+def attempt_invalid_cert_connection(endpoint, cert, key, ca, client_id, args):
+    """Attempt connection with invalid certificates to trigger aws:num-auth-failures"""
+    print(f"[INVALID-CERT TEST] Testing with {args.invalid_cert} certificates...")
+    
+    for attempt in range(args.invalid_cert_attempts):
+        print(f"[INVALID-CERT] Attempt {attempt + 1}/{args.invalid_cert_attempts} with {args.invalid_cert} certificates")
+        
+        try:
+            # Create invalid certificate files
+            invalid_cert, invalid_key, invalid_ca = create_invalid_cert_files(cert, key, ca, args.invalid_cert)
+            
+            # Attempt to create MQTT connection with invalid certificates
+            invalid_mqtt_connection = mqtt_connection_builder.mtls_from_path(
+                endpoint=endpoint,
+                cert_filepath=invalid_cert,
+                pri_key_filepath=invalid_key,
+                ca_filepath=invalid_ca,
+                client_id=f"{client_id}_invalid_{attempt}",
+                clean_session=True,
+                keep_alive_secs=IOT_KEEP_ALIVE_SECS,
+                on_connection_interrupted=lambda *args, **kwargs: None,
+                on_connection_resumed=lambda *args, **kwargs: None
+            )
+            
+            print(f"[INVALID-CERT] Attempting connection with {args.invalid_cert} certificates...")
+            connect_future = invalid_mqtt_connection.connect()
+            
+            try:
+                # Short timeout to fail quickly
+                connect_future.result(timeout=10.0)
+                print(f"[INVALID-CERT] Unexpected success with {args.invalid_cert} certificates!")
+                # If successful, disconnect immediately
+                try:
+                    disconnect_future = invalid_mqtt_connection.disconnect()
+                    disconnect_future.result(timeout=5.0)
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"[INVALID-CERT] Expected failure with {args.invalid_cert} certificates: {e}")
+                # This is expected - the connection should fail with invalid certificates
+                
+        except Exception as e:
+            print(f"[INVALID-CERT] Certificate setup error: {e}")
+        
+        # Clean up temporary files
+        try:
+            if 'invalid_cert' in locals() and os.path.exists(os.path.dirname(invalid_cert)):
+                shutil.rmtree(os.path.dirname(invalid_cert), ignore_errors=True)
+        except Exception:
+            pass
+        
+        if attempt < args.invalid_cert_attempts - 1:
+            print(f"[INVALID-CERT] Waiting {args.invalid_cert_delay}s before next attempt...")
+            time.sleep(args.invalid_cert_delay)
+    
+    print(f"[INVALID-CERT TEST] Completed {args.invalid_cert_attempts} attempts with {args.invalid_cert} certificates")
+
 def main():
     signal.signal(signal.SIGINT, handle_sigint)
 
@@ -60,6 +182,13 @@ def main():
                    help="Append a filler 'blob' of this size to each publish (to trip aws:message-byte-size)")
     p.add_argument("--flap-interval", type=int, default=int(os.getenv("IOT_FLAP_INTERVAL", "0")),
                    help="If >0, disconnect/reconnect every N seconds (to trip aws:num-disconnects)")
+
+    p.add_argument("--invalid-cert", choices=["expired", "wrong", "missing"], default=None,
+                   help="Test with invalid certificates to trigger aws:num-auth-failures (expired/wrong/missing)")
+    p.add_argument("--invalid-cert-attempts", type=int, default=int(os.getenv("IOT_INVALID_CERT_ATTEMPTS", "3")),
+                   help="Number of connection attempts with invalid certificates")
+    p.add_argument("--invalid-cert-delay", type=int, default=int(os.getenv("IOT_INVALID_CERT_DELAY", "5")),
+                   help="Delay between invalid certificate connection attempts in seconds")
 
     p.add_argument("--no-heartbeat", action="store_true", default=getenv_bool("IOT_NO_HEARTBEAT", False),
                    help="Disable periodic heartbeat loop")
@@ -103,6 +232,11 @@ def main():
         else:
             print("[connection resumed] Session persisted, subscriptions maintained")
 
+    # Handle invalid certificate testing
+    if args.invalid_cert:
+        attempt_invalid_cert_connection(endpoint, cert, key, ca, client_id, args)
+        print("[INVALID-CERT] Now proceeding with valid certificates for normal operation...")
+    
     mqtt_connection = mqtt_connection_builder.mtls_from_path(
         endpoint=endpoint,
         cert_filepath=cert,

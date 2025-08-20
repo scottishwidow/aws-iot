@@ -6,7 +6,7 @@ from botocore.exceptions import ClientError
 from urllib.request import urlopen
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent.parent / '.env')
 
 DEFAULT_POLICY_PREFIX = os.getenv('IOT_POLICY_PREFIX', 'DevicePolicy')
 DEFAULT_CERT_DIR = os.getenv('IOT_CERT_DIR', 'certs')
@@ -51,7 +51,7 @@ def main():
     parser.add_argument("--thing-name", required=True, help="IoT Thing name (and MQTT clientId).")
     parser.add_argument("--policy-name", default=None, help=f"IoT Policy name (default: {DEFAULT_POLICY_PREFIX}_<THING>)")
     parser.add_argument("--outdir", default=DEFAULT_CERT_DIR, help="Where to write certs/keys")
-    parser.add_argument("--region", default=None, help="AWS region (fallback: boto3 default)")
+    parser.add_argument("--region", default=os.getenv('AWS_REGION'), help="AWS region (fallback: AWS_REGION env var or boto3 default)")
     args = parser.parse_args()
 
     thing_name = args.thing_name
@@ -62,7 +62,7 @@ def main():
     session = boto3.session.Session(region_name=args.region)
     region = session.region_name
     if not region:
-        print("No region resolved. Use --region or set AWS_REGION.", file=sys.stderr)
+        print("No region resolved. Use --region or set AWS_REGION environment variable.", file=sys.stderr)
         sys.exit(1)
 
     sts = session.client("sts")

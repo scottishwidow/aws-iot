@@ -11,7 +11,7 @@ GROUP_NAME_DEFAULT = os.getenv('DEFENDER_GROUP_NAME', 'LabGroup')
 
 def main():
     ap = argparse.ArgumentParser(description="Cleanup Device Defender Detect: detach profile and delete group/profile")
-    ap.add_argument("--region", default=None)
+    ap.add_argument("--region", default=os.getenv('AWS_REGION'), help="AWS region (fallback: AWS_REGION env var or boto3 default)")
     ap.add_argument("--group-name", default=GROUP_NAME_DEFAULT)
     ap.add_argument("--profile-name", default=PROFILE_NAME_DEFAULT)
     args = ap.parse_args()

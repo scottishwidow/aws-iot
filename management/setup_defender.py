@@ -27,6 +27,17 @@ BEHAVIORS = [
         }
     },
     {
+        "name": "TooManyTLSAuthFailures",
+        "metric": "aws:num-auth-failures",
+        "criteria": {
+            "comparisonOperator": "greater-than-equals",
+            "value": {"count": AUTH_FAILURE_THRESHOLD},
+            "durationSeconds": DURATION_SECONDS,
+            "consecutiveDatapointsToAlarm": 1,
+            "consecutiveDatapointsToClear": 1
+        }
+    },
+    {
         "name": "TooManyMessagesSent",
         "metric": "aws:num-messages-sent",
         "criteria": {
@@ -62,7 +73,7 @@ BEHAVIORS = [
 
 def main():
     ap = argparse.ArgumentParser(description="Setup Device Defender Detect: group + security profile + attachment")
-    ap.add_argument("--region", default=None, help="AWS region (falls back to boto3 default)")
+    ap.add_argument("--region", default=os.getenv('AWS_REGION'), help="AWS region (fallback: AWS_REGION env var or boto3 default)")
     ap.add_argument("--group-name", default=GROUP_NAME_DEFAULT)
     ap.add_argument("--profile-name", default=PROFILE_NAME_DEFAULT)
     ap.add_argument("--thing-name", required=True, help="Thing to place in the group")

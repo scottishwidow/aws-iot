@@ -101,7 +101,7 @@ def main():
     ap.add_argument("--thing-name", required=True, help="IoT Thing name to clean up")
     ap.add_argument("--policy-name", default=None, help=f"IoT Policy name (default: {DEFAULT_POLICY_PREFIX}_<THING>)")
     ap.add_argument("--cert-dir", default=DEFAULT_CERT_DIR, help="Certificate directory base path")
-    ap.add_argument("--region", default=None, help="AWS region (falls back to boto3 default)")
+    ap.add_argument("--region", default=os.getenv('AWS_REGION'), help="AWS region (fallback: AWS_REGION env var or boto3 default)")
     ap.add_argument("--keep-files", action="store_true", help="Keep local certificate files")
     ap.add_argument("--force", action="store_true", help="Skip confirmation prompts for file deletion")
     ap.add_argument("--dry-run", action="store_true", help="Show what would be deleted without actually deleting")

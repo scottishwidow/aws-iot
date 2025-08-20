@@ -53,6 +53,13 @@ All scripts support configuration via environment variables for flexible deploym
 | `DEFENDER_DISCONNECT_THRESHOLD` | `2` | Max disconnects per window |
 | `DEFENDER_DURATION_SECONDS` | `300` | Evaluation window (5 minutes) |
 
+**Invalid Certificate Testing:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IOT_INVALID_CERT_ATTEMPTS` | `3` | Number of invalid certificate connection attempts |
+| `IOT_INVALID_CERT_DELAY` | `5` | Delay between invalid cert attempts (seconds) |
+
 See `.env.example` for complete list and environment-specific configurations.
 
 ---
@@ -105,6 +112,9 @@ By default, publishes a heartbeat JSON every 10 seconds to `devices/<thing-name>
 | Behavior | Flag | Environment Variable | Default | Effect |
 |----------|------|---------------------|---------|--------|
 | **Authorization failures** | `--cause-auth-fail` | `IOT_CAUSE_AUTH_FAIL` | `false` | Subscribe/publish to forbidden topic |
+| **Invalid certificates** | `--invalid-cert` | - | `none` | Test with invalid certificates (expired/wrong/missing) |
+| **Invalid cert attempts** | `--invalid-cert-attempts` | `IOT_INVALID_CERT_ATTEMPTS` | `3` | Number of invalid certificate connection attempts |
+| **Invalid cert delay** | `--invalid-cert-delay` | `IOT_INVALID_CERT_DELAY` | `5` | Delay between invalid cert attempts (seconds) |
 | **Message flood** | `--burst-count`, `--burst-interval-ms` | `IOT_BURST_COUNT`, `IOT_BURST_INTERVAL_MS` | `0`, `0` | Send burst of messages |
 | **Large payloads** | `--payload-bytes` | `IOT_PAYLOAD_BYTES` | `0` | Add filler data to inflate size |
 | **Frequent disconnects** | `--flap-interval` | `IOT_FLAP_INTERVAL` | `0` | Disconnect/reconnect every N seconds |
@@ -117,6 +127,11 @@ Examples:
 # Normal heartbeat
 python device.py --thing-name myTestThing
 
+# Test with invalid certificates (triggers aws:num-auth-failures)
+python device.py --thing-name myTestThing --invalid-cert expired
+python device.py --thing-name myTestThing --invalid-cert wrong --invalid-cert-attempts 5
+python device.py --thing-name myTestThing --invalid-cert missing
+
 # Burst 100 messages after 3 heartbeats
 python device.py --thing-name myTestThing --after 3 --burst-count 100
 
@@ -125,7 +140,20 @@ python device.py --thing-name myTestThing --payload-bytes 8192
 
 # Disconnect/reconnect every 5s, heartbeat every 1s
 python device.py --thing-name myTestThing --flap-interval 5 --interval 1
+
+# Combine multiple behaviors
+python device.py --thing-name myTestThing --invalid-cert wrong --cause-auth-fail --burst-count 50
 ```
+
+**Invalid Certificate Testing:**
+
+The `--invalid-cert` option allows testing TLS/authentication failures to trigger the `aws:num-auth-failures` behavior:
+
+- `expired`: Uses certificates that appear expired/invalid (simulated by corrupting the certificate)
+- `wrong`: Creates certificates with invalid PEM content
+- `missing`: Attempts to use non-existent certificate files
+
+Each invalid certificate attempt will fail during the TLS handshake, generating authentication failure events that Device Defender can detect and alert on.
 
 ---
 
@@ -134,8 +162,9 @@ python device.py --thing-name myTestThing --flap-interval 5 --interval 1
 Creates:
 
 - Thing Group (default: `LabGroup`)
-- Security Profile (default: `LabProfile-Strict`) with 4 behaviors:
-  - TooManyAuthFailures
+- Security Profile (default: `LabProfile-Strict`) with 5 behaviors:
+  - TooManyAuthFailures (authorization failures from forbidden topics)
+  - TooManyTLSAuthFailures (TLS/authentication failures from invalid certificates)
   - TooManyMessagesSent
   - PayloadTooLarge
   - TooManyDisconnects
