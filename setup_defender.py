@@ -2,12 +2,18 @@
 # Create a Thing Group, a strict Security Profile (Device Defender Detect),
 # and attach the profile to the group so your device(s) are evaluated.
 # Dependencies: pip install boto3
-import argparse, json, sys
+import argparse, json, os, sys
 import boto3
 from botocore.exceptions import ClientError
 
-PROFILE_NAME_DEFAULT = "LabProfile-Strict"
-GROUP_NAME_DEFAULT   = "LabGroup"
+# Environment variable defaults
+PROFILE_NAME_DEFAULT = os.getenv('DEFENDER_PROFILE_NAME', 'LabProfile-Strict')
+GROUP_NAME_DEFAULT = os.getenv('DEFENDER_GROUP_NAME', 'LabGroup')
+AUTH_FAILURE_THRESHOLD = int(os.getenv('DEFENDER_AUTH_FAILURE_THRESHOLD', '1'))
+MESSAGE_COUNT_THRESHOLD = int(os.getenv('DEFENDER_MESSAGE_COUNT_THRESHOLD', '10'))
+PAYLOAD_SIZE_THRESHOLD = int(os.getenv('DEFENDER_PAYLOAD_SIZE_THRESHOLD', '4096'))
+DISCONNECT_THRESHOLD = int(os.getenv('DEFENDER_DISCONNECT_THRESHOLD', '2'))
+DURATION_SECONDS = int(os.getenv('DEFENDER_DURATION_SECONDS', '300'))
 
 BEHAVIORS = [
     {
@@ -15,8 +21,8 @@ BEHAVIORS = [
         "metric": "aws:num-authorization-failures",
         "criteria": {
             "comparisonOperator": "greater-than-equals",
-            "value": {"count": 1},
-            "durationSeconds": 300,
+            "value": {"count": AUTH_FAILURE_THRESHOLD},
+            "durationSeconds": DURATION_SECONDS,
             "consecutiveDatapointsToAlarm": 1,
             "consecutiveDatapointsToClear": 1
         }
@@ -26,8 +32,8 @@ BEHAVIORS = [
         "metric": "aws:num-messages-sent",
         "criteria": {
             "comparisonOperator": "greater-than",
-            "value": {"count": 10},
-            "durationSeconds": 300,
+            "value": {"count": MESSAGE_COUNT_THRESHOLD},
+            "durationSeconds": DURATION_SECONDS,
             "consecutiveDatapointsToAlarm": 1,
             "consecutiveDatapointsToClear": 1
         }
@@ -37,7 +43,7 @@ BEHAVIORS = [
         "metric": "aws:message-byte-size",
         "criteria": {
             "comparisonOperator": "greater-than",
-            "value": {"count": 4096},
+            "value": {"count": PAYLOAD_SIZE_THRESHOLD},
             "consecutiveDatapointsToAlarm": 1,
             "consecutiveDatapointsToClear": 1
         }
@@ -47,8 +53,8 @@ BEHAVIORS = [
         "metric": "aws:num-disconnects",
         "criteria": {
             "comparisonOperator": "greater-than",
-            "value": {"count": 2},
-            "durationSeconds": 300,
+            "value": {"count": DISCONNECT_THRESHOLD},
+            "durationSeconds": DURATION_SECONDS,
             "consecutiveDatapointsToAlarm": 1,
             "consecutiveDatapointsToClear": 1
         }

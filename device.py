@@ -6,6 +6,16 @@ from pathlib import Path
 from awscrt import mqtt
 from awsiot import mqtt_connection_builder
 
+# Environment variable defaults for additional configuration
+IOT_KEEP_ALIVE_SECS = int(os.getenv('IOT_KEEP_ALIVE_SECS', '30'))
+IOT_CERT_FILENAME = os.getenv('IOT_CERT_FILENAME', 'device.pem.crt')
+IOT_KEY_FILENAME = os.getenv('IOT_KEY_FILENAME', 'private.pem.key')
+IOT_CA_FILENAME = os.getenv('IOT_CA_FILENAME', 'AmazonRootCA1.pem')
+IOT_ENDPOINT_FILENAME = os.getenv('IOT_ENDPOINT_FILENAME', 'endpoint.txt')
+IOT_TOPIC_PATTERN = os.getenv('IOT_TOPIC_PATTERN', 'devices/{client_id}')
+IOT_UNAUTH_TOPIC_PATTERN = os.getenv('IOT_UNAUTH_TOPIC_PATTERN', 'bad/{client_id}/oops')
+IOT_SLEEP_GRANULARITY = float(os.getenv('IOT_SLEEP_GRANULARITY', '0.25'))
+
 stop = False
 
 def now_ts():
@@ -62,17 +72,18 @@ def main():
 
     # Paths & client id
     d = Path(args.cert_dir) / args.thing_name
-    endpoint = (d / "endpoint.txt").read_text().strip()
-    cert = str(d / "device.pem.crt")
-    key  = str(d / "private.pem.key")
-    ca   = str(d / "AmazonRootCA1.pem")
+    endpoint = (d / IOT_ENDPOINT_FILENAME).read_text().strip()
+    cert = str(d / IOT_CERT_FILENAME)
+    key  = str(d / IOT_KEY_FILENAME)
+    ca   = str(d / IOT_CA_FILENAME)
     client_id = args.thing_name
 
-    # Topics aligned with the provisioning policy (devices/<clientId>/*)
-    topic_hello  = f"devices/{client_id}/hello"
-    topic_hb     = f"devices/{client_id}/heartbeat"
-    topic_status = f"devices/{client_id}/status"
-    unauth_topic = f"bad/{client_id}/oops"  # purposely unauthorized
+    # Topics aligned with the provisioning policy (configurable via environment)
+    topic_pattern = IOT_TOPIC_PATTERN.format(client_id=client_id)
+    topic_hello  = f"{topic_pattern}/hello"
+    topic_hb     = f"{topic_pattern}/heartbeat"
+    topic_status = f"{topic_pattern}/status"
+    unauth_topic = IOT_UNAUTH_TOPIC_PATTERN.format(client_id=client_id)  # purposely unauthorized
 
     sub_qos = mqtt.QoS.AT_LEAST_ONCE if args.qos == 1 else mqtt.QoS.AT_MOST_ONCE
 
@@ -105,7 +116,7 @@ def main():
         ca_filepath=ca,
         client_id=client_id,
         clean_session=args.clean_session,
-        keep_alive_secs=30,
+        keep_alive_secs=IOT_KEEP_ALIVE_SECS,
         on_connection_interrupted=on_conn_interrupted,
         on_connection_resumed=on_conn_resumed,
         will_topic=topic_status,
@@ -221,8 +232,8 @@ def main():
             # Sleep in snappy chunks for responsive Ctrl+C
             remaining = args.interval
             while remaining > 0 and not stop:
-                time.sleep(min(0.25, remaining))
-                remaining -= 0.25
+                time.sleep(min(IOT_SLEEP_GRANULARITY, remaining))
+                remaining -= IOT_SLEEP_GRANULARITY
 
     finally:
         # Non-retained offline status (LWT will also publish if an unexpected drop happens)

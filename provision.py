@@ -5,6 +5,12 @@ import boto3
 from botocore.exceptions import ClientError
 from urllib.request import urlopen
 
+# Environment variable defaults
+DEFAULT_POLICY_PREFIX = os.getenv('IOT_POLICY_PREFIX', 'DevicePolicy')
+DEFAULT_CERT_DIR = os.getenv('IOT_CERT_DIR', 'certs')
+ROOT_CA_URL = os.getenv('ROOT_CA_URL', 'https://www.amazontrust.com/repository/AmazonRootCA1.pem')
+DOWNLOAD_TIMEOUT = int(os.getenv('DOWNLOAD_TIMEOUT', '30'))
+
 # IoT policy (restrict to this device's clientId/topic prefix)
 def make_policy_doc(account_id, region, thing_name):
     base_arn = f"arn:aws:iot:{region}:{account_id}"
@@ -37,20 +43,19 @@ def make_policy_doc(account_id, region, thing_name):
 
 def download_root_ca(dest_path: Path):
     # Amazon Trust Services Root CA 1
-    url = "https://www.amazontrust.com/repository/AmazonRootCA1.pem"
-    pem = urlopen(url, timeout=30).read()
+    pem = urlopen(ROOT_CA_URL, timeout=DOWNLOAD_TIMEOUT).read()
     dest_path.write_bytes(pem)
 
 def main():
     parser = argparse.ArgumentParser(description="Provision a single test AWS IoT device.")
     parser.add_argument("--thing-name", required=True, help="IoT Thing name (and MQTT clientId).")
-    parser.add_argument("--policy-name", default=None, help="IoT Policy name (default: DevicePolicy_<THING>)")
-    parser.add_argument("--outdir", default="certs", help="Where to write certs/keys")
+    parser.add_argument("--policy-name", default=None, help=f"IoT Policy name (default: {DEFAULT_POLICY_PREFIX}_<THING>)")
+    parser.add_argument("--outdir", default=DEFAULT_CERT_DIR, help="Where to write certs/keys")
     parser.add_argument("--region", default=None, help="AWS region (fallback: boto3 default)")
     args = parser.parse_args()
 
     thing_name = args.thing_name
-    policy_name = args.policy_name or f"DevicePolicy_{thing_name}"
+    policy_name = args.policy_name or f"{DEFAULT_POLICY_PREFIX}_{thing_name}"
     outdir = Path(args.outdir) / thing_name
     outdir.mkdir(parents=True, exist_ok=True)
 

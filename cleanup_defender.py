@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # Detach and delete the security profile and thing group created by setup_defender.py
 # Dependencies: pip install boto3
-import argparse, sys
+import argparse, os, sys
 import boto3
 from botocore.exceptions import ClientError
 
-PROFILE_NAME_DEFAULT = "LabProfile-Strict"
-GROUP_NAME_DEFAULT   = "LabGroup"
+# Environment variable defaults (consistent with setup_defender.py)
+PROFILE_NAME_DEFAULT = os.getenv('DEFENDER_PROFILE_NAME', 'LabProfile-Strict')
+GROUP_NAME_DEFAULT = os.getenv('DEFENDER_GROUP_NAME', 'LabGroup')
 
 def main():
     ap = argparse.ArgumentParser(description="Cleanup Device Defender Detect: detach profile and delete group/profile")
