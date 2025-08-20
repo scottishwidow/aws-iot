@@ -42,7 +42,6 @@ def create_invalid_cert_files(cert_path, key_path, ca_path, invalid_type):
     temp_dir = tempfile.mkdtemp(prefix="invalid_certs_")
     
     if invalid_type == "missing":
-        # Return non-existent paths
         return (
             os.path.join(temp_dir, "missing_cert.pem"),
             os.path.join(temp_dir, "missing_key.pem"),
@@ -50,12 +49,10 @@ def create_invalid_cert_files(cert_path, key_path, ca_path, invalid_type):
         )
     
     elif invalid_type == "wrong":
-        # Create dummy certificate files with invalid content
         invalid_cert = os.path.join(temp_dir, "wrong_cert.pem")
         invalid_key = os.path.join(temp_dir, "wrong_key.pem")
         invalid_ca = os.path.join(temp_dir, "wrong_ca.pem")
         
-        # Write invalid PEM content
         with open(invalid_cert, 'w') as f:
             f.write("-----BEGIN CERTIFICATE-----\n")
             f.write("INVALID_CERTIFICATE_CONTENT_FOR_TESTING\n")
@@ -74,14 +71,10 @@ def create_invalid_cert_files(cert_path, key_path, ca_path, invalid_type):
         return invalid_cert, invalid_key, invalid_ca
     
     elif invalid_type == "expired":
-        # For expired certificates, we'll copy the original files but they should be expired
-        # In a real scenario, you'd generate expired certificates
-        # For testing purposes, we'll use wrong certificates to simulate the failure
         expired_cert = os.path.join(temp_dir, "expired_cert.pem")
         expired_key = os.path.join(temp_dir, "expired_key.pem")
         expired_ca = os.path.join(temp_dir, "expired_ca.pem")
         
-        # Copy original files (in real scenario, these would be expired certificates)
         if os.path.exists(cert_path):
             shutil.copy2(cert_path, expired_cert)
         if os.path.exists(key_path):
@@ -89,11 +82,9 @@ def create_invalid_cert_files(cert_path, key_path, ca_path, invalid_type):
         if os.path.exists(ca_path):
             shutil.copy2(ca_path, expired_ca)
         
-        # Modify the cert to make it invalid (simulating expiry)
         if os.path.exists(expired_cert):
             with open(expired_cert, 'r') as f:
                 content = f.read()
-            # Corrupt the certificate to simulate an expired/invalid cert
             content = content.replace("-----BEGIN CERTIFICATE-----", "-----BEGIN CERTIFICATE-----\n# EXPIRED/INVALID")
             with open(expired_cert, 'w') as f:
                 f.write(content)
@@ -110,10 +101,8 @@ def attempt_invalid_cert_connection(endpoint, cert, key, ca, client_id, args):
         print(f"[INVALID-CERT] Attempt {attempt + 1}/{args.invalid_cert_attempts} with {args.invalid_cert} certificates")
         
         try:
-            # Create invalid certificate files
             invalid_cert, invalid_key, invalid_ca = create_invalid_cert_files(cert, key, ca, args.invalid_cert)
             
-            # Attempt to create MQTT connection with invalid certificates
             invalid_mqtt_connection = mqtt_connection_builder.mtls_from_path(
                 endpoint=endpoint,
                 cert_filepath=invalid_cert,
@@ -130,10 +119,8 @@ def attempt_invalid_cert_connection(endpoint, cert, key, ca, client_id, args):
             connect_future = invalid_mqtt_connection.connect()
             
             try:
-                # Short timeout to fail quickly
                 connect_future.result(timeout=10.0)
                 print(f"[INVALID-CERT] Unexpected success with {args.invalid_cert} certificates!")
-                # If successful, disconnect immediately
                 try:
                     disconnect_future = invalid_mqtt_connection.disconnect()
                     disconnect_future.result(timeout=5.0)
@@ -141,12 +128,10 @@ def attempt_invalid_cert_connection(endpoint, cert, key, ca, client_id, args):
                     pass
             except Exception as e:
                 print(f"[INVALID-CERT] Expected failure with {args.invalid_cert} certificates: {e}")
-                # This is expected - the connection should fail with invalid certificates
                 
         except Exception as e:
             print(f"[INVALID-CERT] Certificate setup error: {e}")
         
-        # Clean up temporary files
         try:
             if 'invalid_cert' in locals() and os.path.exists(os.path.dirname(invalid_cert)):
                 shutil.rmtree(os.path.dirname(invalid_cert), ignore_errors=True)
@@ -232,7 +217,6 @@ def main():
         else:
             print("[connection resumed] Session persisted, subscriptions maintained")
 
-    # Handle invalid certificate testing
     if args.invalid_cert:
         attempt_invalid_cert_connection(endpoint, cert, key, ca, client_id, args)
         print("[INVALID-CERT] Now proceeding with valid certificates for normal operation...")
