@@ -164,14 +164,52 @@ aws iot list-violation-events \
 
 5. **Cleanup**
 
-Remove device + Defender resources.
+Complete cleanup of all resources in reverse order of creation.
+
+**Step 1: Clean up Device Defender resources**
+
+Removes security profiles and thing groups:
 
 ```bash
-# Remove Defender resources (security profile and thing group)
 python3 cleanup_defender.py --region <aws-region>
-
-# Note: Device cleanup script not included - remove via AWS Console or CLI
 ```
+
+**Step 2: Clean up provisioned device resources**
+
+Removes certificates, policies, things, and local files:
+
+```bash
+# Full cleanup (includes local certificate files)
+python3 cleanup_provision.py --thing-name <thing-name> --region <aws-region>
+
+# Preview what will be deleted
+python3 cleanup_provision.py --thing-name <thing-name> --dry-run
+
+# Keep local certificate files
+python3 cleanup_provision.py --thing-name <thing-name> --keep-files
+
+# Skip confirmation prompts
+python3 cleanup_provision.py --thing-name <thing-name> --force
+```
+
+**Cleanup Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Preview what would be deleted without making changes |
+| `--keep-files` | Preserve local certificate files in `certs/<thing-name>/` |
+| `--force` | Skip confirmation prompts for file deletion |
+| `--policy-name` | Override policy name (default: `DevicePolicy_<thing-name>`) |
+| `--cert-dir` | Override certificate directory (default: `certs`) |
+
+The cleanup script will:
+1. Detach the thing from its certificate
+2. Detach all policies from the certificate
+3. Deactivate the certificate
+4. Delete the certificate
+5. Delete the policy
+6. Delete the thing
+7. Remove local certificate files (unless `--keep-files` specified)
 
 ---
 
