@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-# Heartbeat device for AWS IoT Core with toggles to trigger Device Defender Detect alerts.
-# Dependencies: pip install awsiot awscrt
 import argparse, json, os, signal, sys, time, threading
 from pathlib import Path
 from awscrt import mqtt
 from awsiot import mqtt_connection_builder
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Environment variable defaults for additional configuration
-IOT_KEEP_ALIVE_SECS = int(os.getenv('IOT_KEEP_ALIVE_SECS', '30'))
+IOT_KEEP_ALIVE_SECS = int(os.getenv('IOT_KEEP_ALIVE_SECS', '20'))
 IOT_CERT_FILENAME = os.getenv('IOT_CERT_FILENAME', 'device.pem.crt')
 IOT_KEY_FILENAME = os.getenv('IOT_KEY_FILENAME', 'private.pem.key')
 IOT_CA_FILENAME = os.getenv('IOT_CA_FILENAME', 'AmazonRootCA1.pem')
@@ -49,13 +45,12 @@ def main():
     p.add_argument("--cert-dir", default=os.getenv("IOT_CERT_DIR", "certs"), help="Base dir containing certs/<thingName>/")
     p.add_argument("--interval", type=int, default=int(os.getenv("IOT_INTERVAL", "10")), help="Seconds between heartbeats")
     p.add_argument("--qos", type=int, default=int(os.getenv("IOT_QOS", "1")), choices=[0,1], help="QoS 0/1 for pub/sub")
-    p.add_argument("--retain", action="store_true" if getenv_bool("IOT_RETAIN", False) else "store_false",
+    p.add_argument("--retain", action="store_true", default=getenv_bool("IOT_RETAIN", False),
                    help="Publish heartbeats as retained (also enable via IOT_RETAIN=1)")
-    p.add_argument("--clean-session", action="store_true" if getenv_bool("IOT_CLEAN_SESSION", False) else "store_false",
+    p.add_argument("--clean-session", action="store_true", default=getenv_bool("IOT_CLEAN_SESSION", False),
                    help="Use clean session; default is persistent session (or set IOT_CLEAN_SESSION=1)")
 
-    # Defender-behavior toggles
-    p.add_argument("--cause-auth-fail", action="store_true" if getenv_bool("IOT_CAUSE_AUTH_FAIL", False) else "store_false",
+    p.add_argument("--cause-auth-fail", action="store_true", default=getenv_bool("IOT_CAUSE_AUTH_FAIL", False),
                    help="Publish/subscribe to an unauthorized topic to trigger aws:num-authorization-failures")
     p.add_argument("--burst-count", type=int, default=int(os.getenv("IOT_BURST_COUNT", "0")),
                    help="Extra messages to burst-send (to trip aws:num-messages-sent)")
@@ -66,15 +61,13 @@ def main():
     p.add_argument("--flap-interval", type=int, default=int(os.getenv("IOT_FLAP_INTERVAL", "0")),
                    help="If >0, disconnect/reconnect every N seconds (to trip aws:num-disconnects)")
 
-    # QoL
-    p.add_argument("--no-heartbeat", action="store_true" if getenv_bool("IOT_NO_HEARTBEAT", False) else "store_false",
+    p.add_argument("--no-heartbeat", action="store_true", default=getenv_bool("IOT_NO_HEARTBEAT", False),
                    help="Disable periodic heartbeat loop")
     p.add_argument("--after", type=int, default=int(os.getenv("IOT_AFTER", "0")),
                    help="Trigger behaviors after N heartbeats (0 = immediately)")
 
     args = p.parse_args()
 
-    # Paths & client id
     d = Path(args.cert_dir) / args.thing_name
     endpoint = (d / IOT_ENDPOINT_FILENAME).read_text().strip()
     cert = str(d / IOT_CERT_FILENAME)
@@ -82,36 +75,33 @@ def main():
     ca   = str(d / IOT_CA_FILENAME)
     client_id = args.thing_name
 
-    # Topics aligned with the provisioning policy (configurable via environment)
     topic_pattern = IOT_TOPIC_PATTERN.format(client_id=client_id)
     topic_hello  = f"{topic_pattern}/hello"
     topic_hb     = f"{topic_pattern}/heartbeat"
     topic_status = f"{topic_pattern}/status"
-    unauth_topic = IOT_UNAUTH_TOPIC_PATTERN.format(client_id=client_id)  # purposely unauthorized
+    unauth_topic = IOT_UNAUTH_TOPIC_PATTERN.format(client_id=client_id)
 
     sub_qos = mqtt.QoS.AT_LEAST_ONCE if args.qos == 1 else mqtt.QoS.AT_MOST_ONCE
 
-    # Last Will
     will_payload = json.dumps({"thing": client_id, "status": "offline", "ts": now_ts()})
 
-    # Set up connection with callbacks
-    # We'll capture 'mqtt_connection' and resubscribe topics if session doesn't persist
     def on_conn_interrupted(connection, error, **kwargs):
         print(f"Connection interrupted: {error}")
+        time.sleep(0.5)
 
-    # place-holders to be set after creation
     resub_topics = []
 
     def on_conn_resumed(connection, return_code, session_present, **kwargs):
         print(f"Connection resumed: return_code={return_code}, session_present={session_present}")
         if not session_present:
-            # Broker dropped session → re-subscribe to our topics
             for t in resub_topics:
                 try:
                     subscribe_sync(connection, t, sub_qos, on_message)
                     print(f"[re-subscribed] {t}")
                 except Exception as e:
                     print(f"[re-subscribe failed] {t}: {e}")
+        else:
+            print("[connection resumed] Session persisted, subscriptions maintained")
 
     mqtt_connection = mqtt_connection_builder.mtls_from_path(
         endpoint=endpoint,
@@ -137,32 +127,26 @@ def main():
         print(f"Connection failed: {e}")
         sys.exit(1)
 
-    # Message callback
     def on_message(topic, payload, dup, qos, retain, **kwargs):
         print(f"[MSG] {topic}: {payload.decode()} (retain={retain})")
 
-    # Subscribe to echo topics
     subscribe_sync(mqtt_connection, topic_hello, sub_qos, on_message)
     subscribe_sync(mqtt_connection, topic_hb,    sub_qos, on_message)
     resub_topics = [topic_hello, topic_hb]
     print(f"Subscribed to {topic_hello} and {topic_hb}")
 
-    # Publish 'online' retained indicator
     online = {"thing": client_id, "status": "online", "ts": now_ts()}
     mqtt_connection.publish(topic=topic_status, payload=json.dumps(online), qos=sub_qos, retain=True)
 
-    # Helper to inflate payload
     def make_payload(base: dict):
         if args.payload_bytes > 0:
             base = dict(base)
             base["blob"] = "x" * args.payload_bytes
         return base
 
-    # Optional hello
     hello = make_payload({"thing": client_id, "note": "hello from heartbeat device", "ts": now_ts()})
     mqtt_connection.publish(topic=topic_hello, payload=json.dumps(hello), qos=sub_qos)
 
-    # Intentional authorization failures (subscribe & publish to forbidden topic)
     if args.cause_auth_fail:
         try:
             fut, _ = mqtt_connection.subscribe(topic=unauth_topic, qos=sub_qos, callback=lambda *a, **k: None)
@@ -176,7 +160,6 @@ def main():
         except Exception as e:
             print(f"[AUTH-FAIL PUB expected error] {e}")
 
-    # Threaded burst so it doesn't block heartbeat loop
     def do_burst():
         if args.burst_count > 0:
             print(f"[BURST] sending {args.burst_count} messages (interval={args.burst_interval_ms} ms)")
@@ -189,7 +172,6 @@ def main():
                 if args.burst_interval_ms > 0:
                     time.sleep(args.burst_interval_ms / 1000.0)
 
-    # Determine when to trigger behaviors (immediately or after N heartbeats)
     trigger_after = max(args.after, 0)
     burst_started = False
 
@@ -201,35 +183,30 @@ def main():
         print(f"Heartbeat every {args.interval}s (Ctrl+C to stop)...")
 
     try:
-        # If no heartbeat, we still want to optionally trigger behaviors
         if args.no_heartbeat:
             if trigger_after == 0 and not burst_started and args.burst_count > 0:
                 threading.Thread(target=do_burst, daemon=True).start()
                 burst_started = True
 
         while not stop and (not args.no_heartbeat):
-            # Trigger behaviors when the Nth heartbeat occurs (or immediately if after == 0)
             if (not burst_started) and ((trigger_after == 0 and seq == 1) or (trigger_after > 0 and seq == trigger_after)):
                 if args.burst_count > 0:
                     threading.Thread(target=do_burst, daemon=True).start()
                 burst_started = True
 
-            # Heartbeat publish
             msg = make_payload({"thing": client_id, "seq": seq, "ts": now_ts(), "type": "heartbeat"})
             try:
                 publish_future = mqtt_connection.publish(topic=topic_hb, payload=json.dumps(msg), qos=sub_qos, retain=args.retain)
-                # Don't wait for publish to complete - this allows for more responsive shutdown
                 print(f"Published -> {topic_hb}: seq={seq} size≈{len(json.dumps(msg))}B (retain={args.retain})")
             except Exception as e:
                 print(f"[heartbeat publish error] {e}")
+                time.sleep(0.1)
             seq += 1
 
-            # Optional intentional flap to drive aws:num-disconnects
             if args.flap_interval > 0 and (time.time() - last_flap) >= args.flap_interval:
                 print("[FLAP] Disconnecting intentionally to trigger aws:num-disconnects ...")
                 try:
                     disconnect_future = mqtt_connection.disconnect()
-                    # Add timeout to prevent hanging
                     try:
                         disconnect_future.result(timeout=5.0)
                     except Exception as e:
@@ -240,7 +217,6 @@ def main():
                 print("[FLAP] Reconnecting ...")
                 try:
                     connect_future = mqtt_connection.connect()
-                    # Add timeout to prevent hanging
                     try:
                         connect_future.result(timeout=10.0)
                     except Exception as e:
@@ -249,18 +225,15 @@ def main():
                     print(f"[FLAP connect error] {e}")
                 last_flap = time.time()
 
-            # Sleep in snappy chunks for responsive Ctrl+C
             remaining = args.interval
             while remaining > 0 and not stop:
                 time.sleep(min(IOT_SLEEP_GRANULARITY, remaining))
                 remaining -= IOT_SLEEP_GRANULARITY
 
     finally:
-        # Non-retained offline status (LWT will also publish if an unexpected drop happens)
         offline = {"thing": client_id, "status": "offline", "ts": now_ts()}
         try:
             publish_future = mqtt_connection.publish(topic=topic_status, payload=json.dumps(offline), qos=sub_qos, retain=False)
-            # Try to wait briefly for final message, but don't hang
             try:
                 publish_future.result(timeout=2.0)
             except Exception:
@@ -269,7 +242,6 @@ def main():
             pass
         try:
             disconnect_future = mqtt_connection.disconnect()
-            # Try to disconnect gracefully, but don't hang
             try:
                 disconnect_future.result(timeout=5.0)
             except Exception:

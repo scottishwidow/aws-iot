@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-# Create a Thing Group, a strict Security Profile (Device Defender Detect),
-# and attach the profile to the group so your device(s) are evaluated.
-# Dependencies: pip install boto3
 import argparse, json, os, sys
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Environment variable defaults
 PROFILE_NAME_DEFAULT = os.getenv('DEFENDER_PROFILE_NAME', 'LabProfile-Strict')
 GROUP_NAME_DEFAULT = os.getenv('DEFENDER_GROUP_NAME', 'LabGroup')
 AUTH_FAILURE_THRESHOLD = int(os.getenv('DEFENDER_AUTH_FAILURE_THRESHOLD', '1'))
@@ -81,7 +76,6 @@ def main():
 
     iot = session.client("iot")
 
-    # Create or reuse thing group
     try:
         iot.create_thing_group(thingGroupName=args.group_name)
         print(f"Created thing group: {args.group_name}")
@@ -91,7 +85,6 @@ def main():
         else:
             raise
 
-    # Add thing to group
     try:
         iot.add_thing_to_thing_group(thingGroupName=args.group_name, thingName=args.thing_name)
         print(f"Added thing '{args.thing_name}' to '{args.group_name}'")
@@ -104,7 +97,6 @@ def main():
         else:
             raise
 
-    # Create or reuse security profile
     try:
         iot.create_security_profile(
             securityProfileName=args.profile_name,
@@ -117,7 +109,6 @@ def main():
         else:
             raise
 
-    # Attach security profile to group
     group_arn = iot.describe_thing_group(thingGroupName=args.group_name)["thingGroupArn"]
     try:
         iot.attach_security_profile(

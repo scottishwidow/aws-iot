@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-# Clean up IoT device provisioning resources: certificates, policies, things, and local files.
-# Dependencies: pip install boto3
 import argparse, os, sys
 from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Environment variable defaults (consistent with provision.py)
 DEFAULT_POLICY_PREFIX = os.getenv('IOT_POLICY_PREFIX', 'DevicePolicy')
 DEFAULT_CERT_DIR = os.getenv('IOT_CERT_DIR', 'certs')
 IOT_CERT_FILENAME = os.getenv('IOT_CERT_FILENAME', 'device.pem.crt')
@@ -48,20 +44,17 @@ def cleanup_local_files(cert_dir: Path, thing_name: str, force: bool = False):
         else:
             print(f"[info] File does not exist: {file_path}")
     
-    # Remove directory if empty
     try:
         if removed_count > 0 and not any(thing_dir.iterdir()):
             thing_dir.rmdir()
             print(f"Removed empty directory: {thing_dir}")
             
-            # Also remove parent cert directory if it becomes empty
             parent_dir = thing_dir.parent
             try:
                 if not any(parent_dir.iterdir()):
                     parent_dir.rmdir()
                     print(f"Removed empty parent directory: {parent_dir}")
             except OSError:
-                # Parent directory not empty or other issue - that's fine
                 pass
     except OSError:
         print(f"[info] Directory not empty, keeping: {thing_dir}")
@@ -72,7 +65,6 @@ def get_certificate_arn_for_thing(iot, thing_name: str):
         response = iot.list_thing_principals(thingName=thing_name)
         principals = response.get('principals', [])
         
-        # Filter for certificate ARNs (not aliases)
         cert_arns = [p for p in principals if ':cert/' in p]
         
         if not cert_arns:
@@ -130,14 +122,12 @@ def main():
 
     iot = session.client("iot")
 
-    # Get certificate ARN for the thing
     cert_arn = get_certificate_arn_for_thing(iot, thing_name)
     
     if cert_arn:
         cert_id = cert_arn.split('/')[-1]
         print(f"Found certificate: {cert_id}")
         
-        # Get attached policies
         attached_policies = get_policies_for_certificate(iot, cert_arn)
         
         if args.dry_run:
@@ -146,7 +136,6 @@ def main():
                 print(f"[DRY RUN] Would detach policy '{policy}' from certificate")
             print(f"[DRY RUN] Would deactivate and delete certificate {cert_id}")
         else:
-            # Detach thing from certificate
             try:
                 iot.detach_thing_principal(thingName=thing_name, principal=cert_arn)
                 print(f"Detached thing '{thing_name}' from certificate")
@@ -156,7 +145,6 @@ def main():
                 else:
                     print(f"[warn] Could not detach thing from certificate: {e.response['Error']['Code']}")
 
-            # Detach policies from certificate
             for policy_name_attached in attached_policies:
                 try:
                     iot.detach_policy(policyName=policy_name_attached, target=cert_arn)
@@ -167,7 +155,6 @@ def main():
                     else:
                         print(f"[warn] Could not detach policy '{policy_name_attached}': {e.response['Error']['Code']}")
 
-            # Deactivate certificate
             try:
                 iot.update_certificate(certificateId=cert_id, newStatus='INACTIVE')
                 print(f"Deactivated certificate: {cert_id}")
@@ -177,7 +164,6 @@ def main():
                 else:
                     print(f"[warn] Could not deactivate certificate: {e.response['Error']['Code']}")
 
-            # Delete certificate
             try:
                 iot.delete_certificate(certificateId=cert_id)
                 print(f"Deleted certificate: {cert_id}")
@@ -189,7 +175,6 @@ def main():
                 else:
                     print(f"[warn] Could not delete certificate: {e.response['Error']['Code']}")
 
-    # Delete policy
     if args.dry_run:
         print(f"[DRY RUN] Would delete policy: {policy_name}")
     else:
@@ -204,7 +189,6 @@ def main():
             else:
                 print(f"[warn] Could not delete policy: {e.response['Error']['Code']}")
 
-    # Delete thing
     if args.dry_run:
         print(f"[DRY RUN] Would delete thing: {thing_name}")
     else:
@@ -219,7 +203,6 @@ def main():
             else:
                 print(f"[warn] Could not delete thing: {e.response['Error']['Code']}")
 
-    # Clean up local files
     if not args.keep_files:
         if args.dry_run:
             thing_dir = cert_dir / thing_name

@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-# Detach and delete the security profile and thing group created by setup_defender.py
-# Dependencies: pip install boto3
 import argparse, os, sys
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Environment variable defaults (consistent with setup_defender.py)
 PROFILE_NAME_DEFAULT = os.getenv('DEFENDER_PROFILE_NAME', 'LabProfile-Strict')
 GROUP_NAME_DEFAULT = os.getenv('DEFENDER_GROUP_NAME', 'LabGroup')
 
@@ -28,7 +24,6 @@ def main():
 
     iot = session.client("iot")
 
-    # Detach profile from group (if both exist)
     try:
         group_arn = iot.describe_thing_group(thingGroupName=args.group_name)["thingGroupArn"]
         try:
@@ -45,10 +40,7 @@ def main():
         else:
             raise
 
-    # Remove things from group & delete group
     try:
-        # Attempt deletion; will fail if still contains things; best-effort empty then delete
-        # List group things (shallow)
         things = iot.list_things_in_thing_group(thingGroupName=args.group_name).get("things", [])
         for t in things:
             try:
@@ -64,7 +56,6 @@ def main():
         else:
             print(f"[group delete warn] {e.response['Error']['Code']}")
 
-    # Delete security profile
     try:
         iot.delete_security_profile(securityProfileName=args.profile_name)
         print(f"Deleted security profile: {args.profile_name}")

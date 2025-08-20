@@ -6,16 +6,13 @@ from botocore.exceptions import ClientError
 from urllib.request import urlopen
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Environment variable defaults
 DEFAULT_POLICY_PREFIX = os.getenv('IOT_POLICY_PREFIX', 'DevicePolicy')
 DEFAULT_CERT_DIR = os.getenv('IOT_CERT_DIR', 'certs')
 ROOT_CA_URL = os.getenv('ROOT_CA_URL', 'https://www.amazontrust.com/repository/AmazonRootCA1.pem')
 DOWNLOAD_TIMEOUT = int(os.getenv('DOWNLOAD_TIMEOUT', '30'))
 
-# IoT policy (restrict to this device's clientId/topic prefix)
 def make_policy_doc(account_id, region, thing_name):
     base_arn = f"arn:aws:iot:{region}:{account_id}"
     topic_prefix = f"devices/${{iot:ClientId}}/*"
@@ -46,7 +43,6 @@ def make_policy_doc(account_id, region, thing_name):
     }
 
 def download_root_ca(dest_path: Path):
-    # Amazon Trust Services Root CA 1
     pem = urlopen(ROOT_CA_URL, timeout=DOWNLOAD_TIMEOUT).read()
     dest_path.write_bytes(pem)
 
@@ -73,10 +69,8 @@ def main():
     account_id = sts.get_caller_identity()["Account"]
 
     iot = session.client("iot")
-    # Data-ATS endpoint for MQTT
     ep = iot.describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
 
-    # Ensure policy exists
     policy_doc = json.dumps(make_policy_doc(account_id, region, thing_name))
     try:
         iot.create_policy(policyName=policy_name, policyDocument=policy_doc)
@@ -87,7 +81,6 @@ def main():
         else:
             raise
 
-    # Ensure thing exists
     try:
         iot.create_thing(thingName=thing_name)
         print(f"Created thing: {thing_name}")
@@ -97,18 +90,15 @@ def main():
         else:
             raise
 
-    # Create keys & certificate (ACTIVE)
     resp = iot.create_keys_and_certificate(setAsActive=True)
     cert_arn = resp["certificateArn"]
     cert_pem = resp["certificatePem"]
     priv_key = resp["keyPair"]["PrivateKey"]
 
-    # Attachments
     iot.attach_policy(policyName=policy_name, target=cert_arn)
     iot.attach_thing_principal(thingName=thing_name, principal=cert_arn)
     print("Attached policy and thing to certificate.")
 
-    # Write files
     cert_file = outdir / "device.pem.crt"
     key_file  = outdir / "private.pem.key"
     root_ca   = outdir / "AmazonRootCA1.pem"
@@ -118,7 +108,6 @@ def main():
     key_file.write_text(priv_key)
     endpoint_file.write_text(ep + "\n")
 
-    # Root CA
     try:
         download_root_ca(root_ca)
         print(f"Downloaded AmazonRootCA1 to {root_ca}")
