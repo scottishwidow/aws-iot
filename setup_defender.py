@@ -5,6 +5,10 @@
 import argparse, json, os, sys
 import boto3
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Environment variable defaults
 PROFILE_NAME_DEFAULT = os.getenv('DEFENDER_PROFILE_NAME', 'LabProfile-Strict')

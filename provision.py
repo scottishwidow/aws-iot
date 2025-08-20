@@ -4,6 +4,10 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 from urllib.request import urlopen
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Environment variable defaults
 DEFAULT_POLICY_PREFIX = os.getenv('IOT_POLICY_PREFIX', 'DevicePolicy')

@@ -5,6 +5,10 @@ import argparse, os, sys
 from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Environment variable defaults (consistent with provision.py)
 DEFAULT_POLICY_PREFIX = os.getenv('IOT_POLICY_PREFIX', 'DevicePolicy')
@@ -49,6 +53,16 @@ def cleanup_local_files(cert_dir: Path, thing_name: str, force: bool = False):
         if removed_count > 0 and not any(thing_dir.iterdir()):
             thing_dir.rmdir()
             print(f"Removed empty directory: {thing_dir}")
+            
+            # Also remove parent cert directory if it becomes empty
+            parent_dir = thing_dir.parent
+            try:
+                if not any(parent_dir.iterdir()):
+                    parent_dir.rmdir()
+                    print(f"Removed empty parent directory: {parent_dir}")
+            except OSError:
+                # Parent directory not empty or other issue - that's fine
+                pass
     except OSError:
         print(f"[info] Directory not empty, keeping: {thing_dir}")
 

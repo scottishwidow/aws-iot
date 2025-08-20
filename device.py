@@ -5,6 +5,10 @@ import argparse, json, os, signal, sys, time, threading
 from pathlib import Path
 from awscrt import mqtt
 from awsiot import mqtt_connection_builder
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Environment variable defaults for additional configuration
 IOT_KEEP_ALIVE_SECS = int(os.getenv('IOT_KEEP_ALIVE_SECS', '30'))
@@ -125,8 +129,13 @@ def main():
     )
 
     print(f"Connecting to {endpoint} as clientId={client_id} ...")
-    mqtt_connection.connect().result()
-    print("Connected.")
+    connect_future = mqtt_connection.connect()
+    try:
+        connect_future.result(timeout=30.0)
+        print("Connected.")
+    except Exception as e:
+        print(f"Connection failed: {e}")
+        sys.exit(1)
 
     # Message callback
     def on_message(topic, payload, dup, qos, retain, **kwargs):
@@ -208,7 +217,8 @@ def main():
             # Heartbeat publish
             msg = make_payload({"thing": client_id, "seq": seq, "ts": now_ts(), "type": "heartbeat"})
             try:
-                mqtt_connection.publish(topic=topic_hb, payload=json.dumps(msg), qos=sub_qos, retain=args.retain)
+                publish_future = mqtt_connection.publish(topic=topic_hb, payload=json.dumps(msg), qos=sub_qos, retain=args.retain)
+                # Don't wait for publish to complete - this allows for more responsive shutdown
                 print(f"Published -> {topic_hb}: seq={seq} size≈{len(json.dumps(msg))}B (retain={args.retain})")
             except Exception as e:
                 print(f"[heartbeat publish error] {e}")
@@ -218,13 +228,23 @@ def main():
             if args.flap_interval > 0 and (time.time() - last_flap) >= args.flap_interval:
                 print("[FLAP] Disconnecting intentionally to trigger aws:num-disconnects ...")
                 try:
-                    mqtt_connection.disconnect().result()
+                    disconnect_future = mqtt_connection.disconnect()
+                    # Add timeout to prevent hanging
+                    try:
+                        disconnect_future.result(timeout=5.0)
+                    except Exception as e:
+                        print(f"[FLAP disconnect timeout/error] {e}")
                 except Exception as e:
                     print(f"[FLAP disconnect error] {e}")
                 time.sleep(1)
                 print("[FLAP] Reconnecting ...")
                 try:
-                    mqtt_connection.connect().result()
+                    connect_future = mqtt_connection.connect()
+                    # Add timeout to prevent hanging
+                    try:
+                        connect_future.result(timeout=10.0)
+                    except Exception as e:
+                        print(f"[FLAP connect timeout/error] {e}")
                 except Exception as e:
                     print(f"[FLAP connect error] {e}")
                 last_flap = time.time()
@@ -239,11 +259,21 @@ def main():
         # Non-retained offline status (LWT will also publish if an unexpected drop happens)
         offline = {"thing": client_id, "status": "offline", "ts": now_ts()}
         try:
-            mqtt_connection.publish(topic=topic_status, payload=json.dumps(offline), qos=sub_qos, retain=False)
+            publish_future = mqtt_connection.publish(topic=topic_status, payload=json.dumps(offline), qos=sub_qos, retain=False)
+            # Try to wait briefly for final message, but don't hang
+            try:
+                publish_future.result(timeout=2.0)
+            except Exception:
+                pass
         except Exception:
             pass
         try:
-            mqtt_connection.disconnect().result()
+            disconnect_future = mqtt_connection.disconnect()
+            # Try to disconnect gracefully, but don't hang
+            try:
+                disconnect_future.result(timeout=5.0)
+            except Exception:
+                pass
         except Exception:
             pass
         print("Disconnected.")
