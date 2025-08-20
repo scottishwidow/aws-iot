@@ -27,17 +27,6 @@ BEHAVIORS = [
         }
     },
     {
-        "name": "TooManyTLSAuthFailures",
-        "metric": "aws:num-auth-failures",
-        "criteria": {
-            "comparisonOperator": "greater-than-equals",
-            "value": {"count": AUTH_FAILURE_THRESHOLD},
-            "durationSeconds": DURATION_SECONDS,
-            "consecutiveDatapointsToAlarm": 1,
-            "consecutiveDatapointsToClear": 1
-        }
-    },
-    {
         "name": "TooManyMessagesSent",
         "metric": "aws:num-messages-sent",
         "criteria": {

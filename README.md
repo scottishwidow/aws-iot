@@ -162,9 +162,8 @@ Each invalid certificate attempt will fail during the TLS handshake, generating 
 Creates:
 
 - Thing Group (default: `LabGroup`)
-- Security Profile (default: `LabProfile-Strict`) with 5 behaviors:
-  - TooManyAuthFailures (authorization failures from forbidden topics)
-  - TooManyTLSAuthFailures (TLS/authentication failures from invalid certificates)
+- Security Profile (default: `LabProfile-Strict`) with 4 behaviors:
+  - TooManyAuthFailures (authorization failures from forbidden topics AND TLS/authentication failures from invalid certificates)
   - TooManyMessagesSent
   - PayloadTooLarge
   - TooManyDisconnects
